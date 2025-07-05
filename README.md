@@ -1,97 +1,165 @@
-# connect-android-app-with-esp32-using-Bluetooth
-# Bluetooth Communication Between Android and ESP32
 
-This project establishes a Bluetooth connection between an Android application and an ESP32 device using Serial Bluetooth Profile (SPP). The Android app scans for nearby Bluetooth devices, connects to the selected device, and enables bidirectional communication.
+# 📱 connect-android-app-with-esp32-using-Bluetooth  
+# 🔌 Bluetooth Communication Between Android and ESP32
 
-## Features
-- Scan for available Bluetooth devices.
-- Connect to an ESP32 device using Bluetooth.
-- Send and receive messages between the Android app and ESP32.
-- Display received messages in a toast message on Android.
+This project creates a Bluetooth communication channel between an **Android application** and an **ESP32 device** using the **Serial Port Profile (SPP)**. The Android app scans for nearby Bluetooth devices, connects to the selected ESP32 device, and sends messages to control a GPIO pin (such as an LED or relay).
 
-## Technologies Used
-- **Android (Java)**: Implements Bluetooth connectivity using `BluetoothAdapter`, `BluetoothDevice`, and `BluetoothSocket`.
-- **ESP32 (C++)**: Uses `BluetoothSerial.h` to establish a Bluetooth serial communication channel.
+---
 
-## Android Application
-### Dependencies
-Ensure the following permissions are added to `AndroidManifest.xml`:
+## ✨ Features
+
+- Scan and display nearby Bluetooth devices.
+- Connect to ESP32 using classic Bluetooth SPP.
+- Send commands from Android to control GPIO.
+- Toggle the LED or relay connected to ESP32 using a button.
+- Show received messages as toast notifications in Android.
+
+---
+
+## 🧰 Technologies Used
+
+- **Android (Java)**:  
+  Bluetooth communication using `BluetoothAdapter`, `BluetoothDevice`, `BluetoothSocket`, and Java I/O streams.
+- **ESP32 (Arduino C++)**:  
+  Uses `BluetoothSerial.h` to communicate over SPP and control GPIO pins.
+
+---
+
+## 📱 Android Application
+
+### 📋 Permissions
+
+Ensure the following permissions are included in your `AndroidManifest.xml`:
+
 ```xml
-<uses-permission android:name="android.permission.BLUETOOTH"/>
-<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+<uses-permission android:name="android.permission.BLUETOOTH" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 ```
-### Key Components
-- **Discovery & Pairing**:
-  - Uses `BluetoothAdapter` to scan for devices.
-  - Displays discovered devices in a `ListView`.
-- **Connection Handling**:
-  - Establishes a connection using `BluetoothSocket`.
-  - Sends messages to the ESP32.
-  - Listens for incoming messages.
 
-### MainActivity.java
-Handles Bluetooth setup, scanning, connection, and communication.
+### 🧩 Key Components
+
+- **Discovery & Pairing**:  
+  Uses `BluetoothAdapter` to search for nearby devices and show them in a `ListView`.
+
+- **Connection Handling**:  
+  Uses `BluetoothSocket` to establish connection and communicate using input/output streams.
+
+- **Communication**:  
+  - Sends predefined strings (e.g., `Relay_ON`) on button click.  
+  - Displays received data as a toast.
+
+---
+
+### 🔑 Sample Code Snippets
+
+#### Start Discovery
+
 ```java
-// Start Bluetooth discovery
 bluetoothAdapter.startDiscovery();
+```
 
-// Connect to selected device
+#### Connect to Device
+
+```java
 bluetoothSocket = selectedDevice.createRfcommSocketToServiceRecord(MY_UUID);
 bluetoothSocket.connect();
-
-// Send message
-outputStream.write("Hello, Bluetooth Device!".getBytes());
 ```
 
-## ESP32 Firmware
-### Setup
-Ensure your ESP32 is running the following code:
+#### Send Message
+
+```java
+outputStream.write("Relay_ON\n".getBytes());
+```
+
+---
+
+## 🔌 ESP32 Firmware
+
+### ✅ Arduino Code
+
 ```cpp
 #include "BluetoothSerial.h"
 
 BluetoothSerial SerialBT;
+const int ledPin = 2; // Built-in LED or relay pin
 
 void setup() {
   Serial.begin(115200);
   SerialBT.begin("ESP32test"); // Device name
-  Serial.println("Bluetooth initialized!");
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+  Serial.println("Bluetooth initialized and ready.");
 }
 
 void loop() {
-  if (Serial.available()) {
-    SerialBT.write(Serial.read());
-  }
   if (SerialBT.available()) {
-    Serial.write(SerialBT.read());
+    String command = SerialBT.readStringUntil('\n');
+    command.trim();
+
+    Serial.println("Received: " + command);
+
+    if (command.equalsIgnoreCase("Relay_ON")) {
+      digitalWrite(ledPin, !digitalRead(ledPin)); // Toggle LED or relay
+      Serial.println("Output toggled");
+    } else if (command.equalsIgnoreCase("Relay_OFF")) {
+      digitalWrite(ledPin, LOW);
+      Serial.println("Output turned OFF");
+    } else if (command.equalsIgnoreCase("Relay_ON_FIXED")) {
+      digitalWrite(ledPin, HIGH);
+      Serial.println("Output turned ON");
+    } else {
+      Serial.println("Unknown command");
+    }
   }
+
+  delay(20);
 }
 ```
-### Explanation
-- Initializes Bluetooth using `SerialBT.begin()`.
-- Reads and writes data between ESP32's serial interface and Bluetooth.
-
-## How to Use
-1. **Flash the ESP32 Code**:
-   - Use the Arduino IDE or ESP-IDF to upload the code.
-   - Open the Serial Monitor at `115200 baud`.
-2. **Run the Android App**:
-   - Install the APK or run the app from Android Studio.
-   - Enable Bluetooth and scan for devices.
-   - Select "ESP32test" to connect.
-3. **Send & Receive Messages**:
-   - Type messages on the Android app to send them to ESP32.
-   - ESP32 echoes received messages back.
-
-## Troubleshooting
-- **Pairing Issues**: Ensure the device is discoverable.
-- **Connection Fails**: Try restarting Bluetooth on both devices.
-- **No Data Received**: Verify baud rate and ensure messages are being sent correctly.
-
-## License
-This project is licensed under the **Public Domain (CC0)**.
 
 ---
 
-Enjoy coding! 🚀
+## 🧪 How to Use
 
+1. **Flash the ESP32 Code**:
+   - Upload the sketch using Arduino IDE.
+   - Open Serial Monitor at 115200 baud to debug.
+
+2. **Run the Android App**:
+   - Install the APK or run from Android Studio.
+   - Enable Bluetooth and Location.
+   - Tap **Scan**, and select **ESP32test** to connect.
+
+3. **Control ESP32**:
+   - Tap the button in the app to send `"Relay_ON"` or similar commands.
+   - The ESP32 toggles or sets the output pin.
+
+---
+
+## 🛠 Troubleshooting
+
+| Issue                 | Solution                                                     |
+|----------------------|--------------------------------------------------------------|
+| Device not found      | Ensure ESP32 is powered and in range                        |
+| Can’t connect         | Try unpairing, restarting Bluetooth, or resetting ESP32     |
+| No output on pin      | Check wiring, correct GPIO number, and serial output logs   |
+| No response on app    | Ensure you send newline `\n` and match command strings     |
+
+---
+
+## 📄 License
+
+This project is licensed under the **Public Domain (CC0)** — completely free to use, modify, and distribute.
+
+---
+
+## 💡 Future Enhancements
+
+- Control multiple GPIOs (`Relay1`, `Relay2`, etc.)
+- Show real-time relay status on Android UI
+- Add disconnect and reconnect functionality
+- Receive messages and display them in a console/log view
+
+---
+
+**Enjoy building your wireless controller!** 💡📲💻
