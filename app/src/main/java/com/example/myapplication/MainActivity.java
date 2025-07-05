@@ -17,16 +17,13 @@ import android.widget.Button;
 import android.widget.ListView;
 import android.widget.Toast;
 
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-    private InputStream inputStream;
     private BluetoothAdapter bluetoothAdapter;
     private final int REQUEST_ENABLE_BT = 1;
     private ListView listViewDevices;
@@ -36,8 +33,11 @@ public class MainActivity extends Activity {
     private BluetoothSocket bluetoothSocket;
     private BluetoothDevice selectedDevice;
     private final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"); // SPP UUID
+    private InputStream inputStream;
     private OutputStream outputStream;
+
     private Handler messageHandler;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -48,34 +48,29 @@ public class MainActivity extends Activity {
         devicesList = new ArrayList<>();
         devicesAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, devicesList);
         listViewDevices.setAdapter(devicesAdapter);
-        messageHandler = new Handler(new Handler.Callback() {
-            @Override
-            public boolean handleMessage(Message msg) {
-                String message = (String) msg.obj;
-                Toast.makeText(MainActivity.this, "Received message: " + message, Toast.LENGTH_SHORT).show();
-                return true;
-            }
+
+        messageHandler = new Handler(msg -> {
+            String message = (String) msg.obj;
+            Toast.makeText(MainActivity.this, "Received message: " + message, Toast.LENGTH_SHORT).show();
+            return true;
         });
-        // Check if Bluetooth is supported
+
         if (bluetoothAdapter == null) {
             Toast.makeText(this, "Bluetooth not supported on this device", Toast.LENGTH_LONG).show();
             return;
         }
 
-        // Enable Bluetooth if not already enabled
         if (!bluetoothAdapter.isEnabled()) {
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
         }
 
-        // Button to start discovery
         Button startDiscoveryButton = findViewById(R.id.btnStartDiscovery);
         startDiscoveryButton.setOnClickListener(v -> discoverBluetoothDevices());
 
-        // Set item click listener for ListView
         listViewDevices.setOnItemClickListener((parent, view, position, id) -> {
             String deviceInfo = devicesList.get(position);
-            String deviceAddress = deviceInfo.substring(deviceInfo.length() - 18); // Extract MAC address
+            String deviceAddress = deviceInfo.substring(deviceInfo.length() - 18);
             try {
                 selectedDevice = bluetoothAdapter.getRemoteDevice(deviceAddress.substring(0, deviceAddress.length() - 1));
                 connectToDevice();
@@ -92,8 +87,6 @@ public class MainActivity extends Activity {
         }
 
         bluetoothAdapter.startDiscovery();
-
-        // Register for broadcasts when a device is discovered
         IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
         registerReceiver(bluetoothReceiver, filter);
     }
@@ -101,25 +94,19 @@ public class MainActivity extends Activity {
     private final BroadcastReceiver bluetoothReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-                // Get Bluetooth device from the Intent
+            if (BluetoothDevice.ACTION_FOUND.equals(intent.getAction())) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-
-                // Get the device's name and address
-                String deviceName = device.getName();
-                String deviceAddress = device.getAddress();
-
-                // Add to the list if it's not already there
-                if (!devicesList.contains(deviceName + " (" + deviceAddress + ")")) {
-                    devicesList.add(deviceName + " (" + deviceAddress + ")");
-                    devicesAdapter.notifyDataSetChanged();
+                if (device != null && device.getName() != null) {
+                    String deviceInfo = device.getName() + " (" + device.getAddress() + ")";
+                    if (!devicesList.contains(deviceInfo)) {
+                        devicesList.add(deviceInfo);
+                        devicesAdapter.notifyDataSetChanged();
+                    }
                 }
             }
         }
     };
 
-    // Connect to the selected Bluetooth device
     private void connectToDevice() {
         if (selectedDevice == null) {
             Toast.makeText(this, "No device selected", Toast.LENGTH_SHORT).show();
@@ -131,59 +118,53 @@ public class MainActivity extends Activity {
                 bluetoothSocket = selectedDevice.createRfcommSocketToServiceRecord(MY_UUID);
                 bluetoothSocket.connect();
 
-                // Get the OutputStream from the BluetoothSocket
-                outputStream = bluetoothSocket.getOutputStream();
                 inputStream = bluetoothSocket.getInputStream();
-                listenForMessages();
-                // If the connection is successful, send a message
-                sendMessage("Hello, Bluetooth Device!");
+                outputStream = bluetoothSocket.getOutputStream();
 
-                // If the connection is successful, display a toast
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connected to " + selectedDevice.getName(), Toast.LENGTH_SHORT).show());
+                BluetoothConnection.bluetoothSocket = bluetoothSocket; // 👉 Save for use in MainActivity2
+
+                listenForMessages();
+
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Connected to " + selectedDevice.getName(), Toast.LENGTH_SHORT).show();
+
+                    // Navigate to MainActivity2
+                    Intent intent = new Intent(MainActivity.this, MainActivity2.class);
+                    intent.putExtra("device_name", selectedDevice.getName());
+                    startActivity(intent);
+                });
+
             } catch (IOException e) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed to connect: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                runOnUiThread(() ->
+                        Toast.makeText(MainActivity.this, "Connection failed: " + e.getMessage(), Toast.LENGTH_SHORT).show()
+                );
             }
         }).start();
     }
 
-    // Send a message to the connected Bluetooth device
-    private void sendMessage(String message) {
-        if (outputStream != null) {
-            try {
-                outputStream.write(message.getBytes());
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Message sent: " + message, Toast.LENGTH_SHORT).show());
-            } catch (IOException e) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed to send message: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-            }
-        }
-    }
     private void listenForMessages() {
         new Thread(() -> {
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             byte[] buffer = new byte[1024];
             int bytes;
+            StringBuilder receivedBuilder = new StringBuilder();
 
             while (true) {
                 try {
                     bytes = inputStream.read(buffer);
                     if (bytes > 0) {
-                        byteArrayOutputStream.write(buffer, 0, bytes);
-                        String receivedData = byteArrayOutputStream.toString("UTF-8");
+                        String incoming = new String(buffer, 0, bytes, "UTF-8");
+                        receivedBuilder.append(incoming);
 
-                        // If the message contains a newline, process it
-                        if (receivedData.contains("\n")) {
-                            final String completeMessage = receivedData.trim();
-                            byteArrayOutputStream.reset(); // Clear buffer after processing
+                        if (incoming.contains("\n")) {
+                            final String fullMessage = receivedBuilder.toString().trim();
+                            receivedBuilder.setLength(0); // Clear buffer
 
-                            // Send received message to handler to display it on the UI
-                            if (messageHandler != null) {
-                                Message message = messageHandler.obtainMessage(0, completeMessage);
-                                messageHandler.sendMessage(message);
-                            }
+                            Message message = messageHandler.obtainMessage(0, fullMessage);
+                            messageHandler.sendMessage(message);
                         }
                     }
                 } catch (IOException e) {
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error receiving message: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Disconnected", Toast.LENGTH_SHORT).show());
                     break;
                 }
             }
@@ -193,15 +174,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        unregisterReceiver(bluetoothReceiver); // Unregister the receiver
-
-        // Close the Bluetooth socket if it's open
-        if (bluetoothSocket != null) {
-            try {
-                bluetoothSocket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+        unregisterReceiver(bluetoothReceiver);
+        try {
+            if (bluetoothSocket != null) bluetoothSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
